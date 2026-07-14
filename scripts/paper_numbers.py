@@ -144,17 +144,24 @@ def interaction():
 
 def calibration():
     print("== 5. operating-point calibration (opcal.json) ==")
+    def eces(pat, b="0.5"):
+        e, n = [], []
+        for p in REPO.glob(pat + "/opcal.json"):
+            r = json.loads(p.read_text())["results"].get(b)
+            if r:
+                e.append(r["ece"]); n.append(r["nll"])
+        return (mean(e), mean(n)) if e else None
     for name, fname, cond, pick, base in SPECS:
-        def eces(pat, b="0.5"):
-            e, n = [], []
-            for p in REPO.glob(pat + "/opcal.json"):
-                r = json.loads(p.read_text())["results"].get(b)
-                if r:
-                    e.append(r["ece"]); n.append(r["nll"])
-            return (mean(e), mean(n)) if e else None
         o, b_ = eces(pick), eces(base)
         if o and b_:
             print(f"  {name:14s} ECE {o[0]:.3f} vs {b_[0]:.3f} | NLL {o[1]:.2f} vs {b_[1]:.2f}")
+    print("== 5b. ECE with the Brier anchor removed (loo arms) ==")
+    for name, fname, cond, pick, base in SPECS:
+        ds = pick.split("/")[1]
+        loo = eces(f"outputs/{ds}_loo/poe_distill_mtl__*/seed*")
+        o = eces(pick)
+        if loo and o:
+            print(f"  {name:14s} full {o[0]:.3f} -> minus-Brier {loo[0]:.3f}")
 
 
 if __name__ == "__main__":

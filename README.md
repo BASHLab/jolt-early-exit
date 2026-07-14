@@ -141,4 +141,4 @@ hyperparameters into `outputs/<dataset>_stepwise`.
 | Shift accuracy envelope | `paper_numbers.py` section 3 |
 | Margin-versus-entropy score ablation | `margin_score_ablation.py` |
 | Window sizes, population oracle, per-exit AUROC under shift | `quantile_routing_analysis.py` |
-| ECE and NLL at operating points | `opcal_eval.py`, then `paper_numbers.py` section 5 |
+| ECE and NLL at operating points, with and without the Brier anchor | `opcal_eval.py`, then `paper_numbers.py` sections 5 and 5b |
