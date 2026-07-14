@@ -123,3 +123,22 @@ done
 
 `poe_multitask_brier` removes distillation, `poe_distill_brier` removes
 the learned weighting, `poe_distill_mtl` removes the Brier anchor.
+
+For the interaction analysis, additionally train the stepwise arms
+`poe_anneal` (the bare PoE chain) and `poe_distill` at the same
+hyperparameters into `outputs/<dataset>_stepwise`.
+
+## Every reported number
+
+| Paper claim | Source |
+|---|---|
+| Main table, budget-curves figure | `generate_budget_table.py`, `generate_budget_curves_figure.py` |
+| Headline envelope (deficits, leads, win/tie/loss) | `paper_numbers.py` section 1 |
+| Per-baseline worst deficit | `paper_numbers.py` section 2 |
+| Leave-one-out ablation table | `generate_ablation_tables.py` |
+| Distillation interaction table | `paper_numbers.py` section 4 |
+| Budget-drift percentages, shift figure | `generate_shift_tables.py --insert --figure` |
+| Shift accuracy envelope | `paper_numbers.py` section 3 |
+| Margin-versus-entropy score ablation | `margin_score_ablation.py` |
+| Window sizes, population oracle, per-exit AUROC under shift | `quantile_routing_analysis.py` |
+| ECE and NLL at operating points | `opcal_eval.py`, then `paper_numbers.py` section 5 |

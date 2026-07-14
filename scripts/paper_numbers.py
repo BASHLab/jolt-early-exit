@@ -1,0 +1,164 @@
+"""Recompute the paper's derived headline numbers from budgeted.json and
+shift-eval files under outputs/.
+
+Reports, with the sources the paper cites:
+  1. Main-table envelope: JOLT's worst deficit and best lead against the
+     strongest baseline per dataset-budget pairing, and the win/tie/loss
+     partition at one combined standard deviation.
+  2. Per-baseline worst deficit against the strongest method anywhere.
+  3. Shift envelope under the shared quantile policy: worst deficit and
+     best lead against the strongest clean baseline across all severities.
+  4. Loss-term interaction: distillation added to the bare PoE chain
+     versus added to the chain with the weighting and Brier anchor.
+  5. Operating-point calibration: ECE and NLL of the JOLT configuration
+     versus the strongest baseline, and ECE with the Brier anchor removed.
+
+Every number is a mean over the seeds present; run the training and
+evaluation commands in the README first.
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+from statistics import mean, stdev
+
+REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO / "scripts"))
+
+from generate_budget_table import (  # noqa: E402
+    BASELINES, BUDGETS, CELLS, candidate_at_contract, candidate_tag_pool,
+    seed_jsons,
+)
+from generate_shift_tables import (  # noqa: E402
+    COND_SETS, SPECS, clean_q_and_macs, load_rows,
+)
+
+
+def acc_at(run: dict, b: float):
+    ok = [r for r in run["curve"] if r["val"]["macs_frac"] <= b]
+    if not ok:
+        return None
+    return max(ok, key=lambda r: r["val"]["accuracy"])["test"]["accuracy"] * 100
+
+
+def stat(vals):
+    return mean(vals), (stdev(vals) if len(vals) > 1 else 0.0)
+
+
+def main_table_envelope():
+    print("== 1. main-table envelope ==")
+    deltas, partition = [], {"win": 0, "tie": 0, "loss": 0}
+    base_worst = {m: 0.0 for m in BASELINES}
+    for cell in CELLS:
+        pool = candidate_tag_pool(cell)
+        for b in BUDGETS:
+            _, ours = candidate_at_contract(pool, b)
+            ovals = [v for r in ours if (v := acc_at(r, b)) is not None]
+            if not ovals:
+                continue
+            om, os_ = stat(ovals)
+            best = None
+            per_method = {}
+            for m in BASELINES:
+                runs = []
+                for root in set(cell["base_roots"] + cell["cand_roots"] + [cell["fix_root"]]):
+                    runs.extend(seed_jsons(REPO / root, m))
+                vals = [v for r in runs if (v := acc_at(r, b)) is not None]
+                if not vals:
+                    continue
+                per_method[m] = stat(vals)
+                if best is None or per_method[m][0] > best[0]:
+                    best = per_method[m]
+            if best is None:
+                continue
+            d = om - best[0]
+            comb = (os_ ** 2 + best[1] ** 2) ** 0.5
+            deltas.append((d, cell["name"], b))
+            partition["win" if d > comb else "loss" if d < -comb else "tie"] += 1
+            row_best = max([om] + [v[0] for v in per_method.values()])
+            for m, (mm, _) in per_method.items():
+                base_worst[m] = max(base_worst[m], row_best - mm)
+    deltas.sort()
+    print(f"  pairings: {len(deltas)}  partition: {partition}")
+    print(f"  worst deficit {deltas[0][0]:+.2f} ({deltas[0][1]} B{deltas[0][2]})")
+    print(f"  best lead     {deltas[-1][0]:+.2f} ({deltas[-1][1]} B{deltas[-1][2]})")
+    print("== 2. per-baseline worst deficit vs strongest method ==")
+    for m, w in sorted(base_worst.items(), key=lambda kv: kv[1]):
+        print(f"  {m:16s} {w:6.2f}")
+
+
+def shift_envelope():
+    print("== 3. shift envelope (shared quantile policy) ==")
+    deltas = []
+    for name, fname, cond, pick, base in SPECS:
+        def rungvals(pat):
+            out = {}
+            for run_dir in sorted(REPO.glob(pat)):
+                cq = clean_q_and_macs(run_dir)
+                if cq is None:
+                    continue
+                q_star, _ = cq
+                for c in COND_SETS[fname]:
+                    rows = load_rows(run_dir, fname, c)
+                    if rows is None:
+                        continue
+                    r = min(rows, key=lambda r: abs(r["q"] - q_star))
+                    out.setdefault(c, []).append(r["q_accuracy"] * 100)
+            return out
+        ov, bv = rungvals(pick), rungvals(base)
+        for c in ov:
+            if c in bv and ov[c] and bv[c]:
+                deltas.append((mean(ov[c]) - mean(bv[c]), name, c))
+    deltas.sort()
+    print(f"  cells: {len(deltas)}")
+    print(f"  worst {deltas[0][0]:+.2f} ({deltas[0][1]} {deltas[0][2]})")
+    print(f"  best  {deltas[-1][0]:+.2f} ({deltas[-1][1]} {deltas[-1][2]})")
+
+
+INTERACTION = {  # dataset -> (root, loo root, tag, budget)
+    "GSC v2": ("outputs/gsc", "outputs/gsc_stepwise", "g0.5-lb0.5", 0.5),
+    "CIFAR-100": ("outputs/cifar100", "outputs/cifar100_stepwise", "g2.0-lb0.5-ce4.0", 0.5),
+}
+
+
+def interaction():
+    print("== 4. distillation interaction (stepwise arms) ==")
+    for name, (root, srot, tag, b) in INTERACTION.items():
+        def arm(base, method):
+            vals = []
+            for p in REPO.glob(f"{base}/{method}__{tag}*/seed*/budgeted.json"):
+                v = acc_at(json.loads(p.read_text()), b)
+                if v is not None:
+                    vals.append(v)
+            return mean(vals) if vals else None
+        poe, pd = arm(srot, "poe_anneal"), arm(srot, "poe_distill")
+        pmb, full = arm(srot, "poe_multitask_brier"), arm(root, "poe_distill_mtl_brier")
+        if None in (poe, pd, pmb, full):
+            print(f"  {name}: stepwise arms missing (train poe_anneal, poe_distill,")
+            print(f"    poe_multitask_brier under {srot} at the same tag)")
+            continue
+        print(f"  {name}: into bare chain {pd - poe:+.2f} | into weighting+Brier {full - pmb:+.2f}")
+
+
+def calibration():
+    print("== 5. operating-point calibration (opcal.json) ==")
+    for name, fname, cond, pick, base in SPECS:
+        def eces(pat, b="0.5"):
+            e, n = [], []
+            for p in REPO.glob(pat + "/opcal.json"):
+                r = json.loads(p.read_text())["results"].get(b)
+                if r:
+                    e.append(r["ece"]); n.append(r["nll"])
+            return (mean(e), mean(n)) if e else None
+        o, b_ = eces(pick), eces(base)
+        if o and b_:
+            print(f"  {name:14s} ECE {o[0]:.3f} vs {b_[0]:.3f} | NLL {o[1]:.2f} vs {b_[1]:.2f}")
+
+
+if __name__ == "__main__":
+    main_table_envelope()
+    shift_envelope()
+    interaction()
+    calibration()
