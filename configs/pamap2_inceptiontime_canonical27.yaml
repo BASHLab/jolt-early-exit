@@ -1,0 +1,50 @@
+# PAMAP2 canonical-27 with InceptionTime backbone (Fawaz DMKD 2020).
+# Three residual Inception blocks (depth=2 each, 4-branch with kernels 10/20/40)
+# + a final classifier head. ~0.4-0.5M params at num_classes=12.
+#
+# Recipe matches the canonical DeepConvLSTM PAMAP2 cell so cell-to-cell deltas
+# are attributable to the backbone, not the recipe.
+
+name: pamap2_inceptiontime_canonical27
+seed: 42
+
+data:
+  name: pamap2
+  root: data/PAMAP2/canonical27
+  num_classes: 12
+  in_channels: 27
+  batch_size: 256
+  num_workers: 2
+  val_size: 1024
+  download: false
+  test_subject: subject106
+  imu_jitter: 0.05
+  imu_scale: 0.10
+
+model:
+  name: inceptiontime_exit
+
+loss:
+  method: jolt
+  use_b: true
+  use_multitask: true
+  divide_b: 10.0
+
+train:
+  epochs: 300
+  lr: 0.0005
+  schedule: cosine
+  warmup_epochs: 15
+  weight_decay: 0.0001
+  momentum: 0.9
+  nesterov: false
+  ema_decay: 0.999
+  mixup_alpha: 0.0
+  cutmix_alpha: 0.0
+  eta_lr: 0.0001
+
+eval:
+  cutoff_type: entropy
+
+diagnostics:
+  enabled: false

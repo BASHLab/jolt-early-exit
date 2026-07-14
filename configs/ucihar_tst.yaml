@@ -1,0 +1,44 @@
+# UCI-HAR with TST (Time Series Transformer, Zerveas KDD 2021).
+# Multi-head self-attention over time — most distinct inductive bias from
+# PAMAP2's InceptionTime convolutions.
+
+name: ucihar_tst
+seed: 42
+
+data:
+  name: uci_har
+  root: ./data/UCI HAR Dataset
+  num_classes: 6
+  in_channels: 9
+  batch_size: 128
+  val_size: 1000
+  download: false
+  layout: "1d"
+  imu_jitter: 0.05
+  imu_scale: 0.10
+
+model:
+  name: tst_exit
+
+loss:
+  method: jolt
+  use_b: true
+  use_multitask: true
+  divide_b: 10.0
+
+train:
+  epochs: 100
+  lr: 0.001
+  schedule: cosine
+  warmup_epochs: 5
+  weight_decay: 0.0001
+  momentum: 0.9
+  nesterov: true
+  ema_decay: 0.999
+  eta_lr: 0.0001
+
+eval:
+  cutoff_type: entropy
+
+diagnostics:
+  enabled: false

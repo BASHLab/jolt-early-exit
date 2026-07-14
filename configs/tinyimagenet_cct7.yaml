@@ -1,0 +1,58 @@
+# Tiny-ImageNet (200 classes, 64x64) with CCT-7/3x2 multi-exit at the Hassani recipe.
+#
+# Recipe source: Hassani, Walton, Shah, Abuduweili, Li & Shi, "Escaping the Big Data
+# Paradigm with Compact Transformers" (WACV 2022). The published Tiny-ImageNet result
+# (Table 6) for CCT-7/3x2 is ~66.9% top-1 at 200 epochs cosine, AdamW lr=5.5e-4,
+# weight_decay=3e-2, warmup=10ep, RandAugment(2, 9), MixUp(0.8) + CutMix(1.0). We drop
+# label smoothing per Xia ICLR 2025 (label smoothing degrades selective classification).
+#
+# Backbone: cct7_exit (3 internal SeqPool exits + 1 final = 4 classifiers); ~4.1M params
+# at num_classes=200, under the 5M on-device cap.
+#
+# Future-work status: this cell is NOT in Tier 1 / Tier 2 of the ICTAI 2026 submission;
+# it's the harder-image extension we'll run after the Tier-1 winner is locked.
+
+name: tinyimagenet_cct7
+seed: 42
+
+data:
+  name: tiny_imagenet
+  root: ./data
+  num_classes: 200
+  in_channels: 3
+  batch_size: 128
+  val_size: 5000
+  download: true
+  randaugment: true
+  randaugment_num_ops: 2
+  randaugment_magnitude: 9
+  cutout: 0.0
+
+model:
+  name: cct7_exit
+
+loss:
+  method: jolt
+  use_b: true
+  use_multitask: true
+  divide_b: 10.0
+
+train:
+  epochs: 200
+  lr: 0.00055
+  schedule: cosine
+  warmup_epochs: 10
+  weight_decay: 0.03
+  momentum: 0.9
+  nesterov: false
+  ema_decay: 0.999
+  mixup_alpha: 0.8
+  cutmix_alpha: 1.0
+  eta_lr: 0.0001
+  grad_clip: 1.0
+
+eval:
+  cutoff_type: entropy
+
+diagnostics:
+  enabled: false

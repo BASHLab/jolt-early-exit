@@ -1,0 +1,44 @@
+# CIFAR-100 with ConvMixer-256/8 (Trockman & Kolter, ICLR 2022, "Patches Are
+# All You Need?"). Patch embedding + depthwise-separable conv blocks with
+# isotropic feature width. ~0.7M params at d=256, depth=8, kernel=9, patch=1.
+# Canonical CIFAR-100 ~73.9% top-1.
+
+name: cifar100_convmixer_256_8
+seed: 42
+
+data:
+  name: cifar100
+  root: ./data
+  num_classes: 100
+  in_channels: 3
+  batch_size: 128
+  val_size: 5000
+  download: true
+
+model:
+  name: convmixer_256_8_exit
+
+loss:
+  method: jolt
+  use_b: true
+  use_multitask: true
+  divide_b: 10.0
+
+train:
+  epochs: 200
+  lr: 0.05
+  schedule: cosine
+  warmup_epochs: 5
+  weight_decay: 0.0001
+  momentum: 0.9
+  nesterov: true
+  ema_decay: 0.999
+  mixup_alpha: 0.0
+  cutmix_alpha: 0.0
+  eta_lr: 0.0001
+
+eval:
+  cutoff_type: entropy
+
+diagnostics:
+  enabled: false

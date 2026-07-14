@@ -1,0 +1,40 @@
+# Google Speech Commands v2 (35-class) with MatchboxNet-3x1x64 (3 early exits + final).
+# Companion to gsc_v2_bcresnet8.yaml, included as an alternative backbone for the audio cell.
+
+name: gsc_v2_matchboxnet
+seed: 42
+
+data:
+  name: gsc_v2
+  root: ./data
+  num_classes: 35
+  in_channels: 1
+  batch_size: 100
+  val_size: 9981
+  download: true
+
+model:
+  name: matchboxnet_exit
+
+loss:
+  method: jolt
+  use_b: true
+  use_multitask: true
+  divide_b: 10.0
+
+train:
+  epochs: 200
+  lr: 0.1
+  schedule: cosine
+  warmup_epochs: 5
+  weight_decay: 0.001
+  momentum: 0.9
+  nesterov: true
+  ema_decay: 0.999
+  eta_lr: 0.0001
+
+eval:
+  cutoff_type: entropy
+
+diagnostics:
+  enabled: false

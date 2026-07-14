@@ -1,0 +1,40 @@
+# ESC-50 (50-class environmental sound) with EfficientNet-B0 (3 early exits + final).
+# Audio classification cell complementing the GSC v2 keyword-spotting cell.
+
+name: esc50_efficientnet_b0_v2
+seed: 42
+
+data:
+  name: esc50
+  root: ./data/ESC-50
+  num_classes: 50
+  in_channels: 1
+  batch_size: 32
+  val_size: 400
+  download: false
+
+model:
+  name: efficientnet_b0_exit
+
+loss:
+  method: jolt
+  use_b: true
+  use_multitask: true
+  divide_b: 10.0
+
+train:
+  epochs: 300
+  lr: 0.01
+  schedule: cosine
+  warmup_epochs: 15
+  weight_decay: 0.0001
+  momentum: 0.9
+  nesterov: true
+  ema_decay: 0.999
+  eta_lr: 0.0001
+
+eval:
+  cutoff_type: entropy
+
+diagnostics:
+  enabled: false
