@@ -122,7 +122,10 @@ done
 ```
 
 `poe_multitask_brier` removes distillation, `poe_distill_brier` removes
-the learned weighting, `poe_distill_mtl` removes the Brier anchor.
+the learned weighting, `poe_distill_mtl` removes the Brier anchor. To
+remove the final-exit anchor on a dataset that selects it, retrain the
+pick without its `lambda_ce` component; datasets whose selection sets
+`lambda_ce=0` have no anchor to remove.
 
 For the interaction analysis, additionally train the stepwise arms
 `poe_anneal` (the bare PoE chain) and `poe_distill` at the same
