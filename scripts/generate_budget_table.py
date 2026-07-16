@@ -212,8 +212,10 @@ def build_tables() -> str:
     main.append(r"\caption{Test accuracy (\%) within a shared compute budget. $B$ caps the")
     main.append(r"average per-sample MAC cost as a fraction of full-depth cost; for every")
     main.append(r"method, per-exit thresholds are solved on validation within the contract")
-    main.append(r"(Section~\ref{sec:metrics-eval}). Mean $\pm$ std over three seeds;")
-    main.append(r"$\dagger$ marks entries with fewer seeds. Contracts below the")
+    dag_note = r"; $^{\dagger}$ marks entries with fewer seeds" if any(
+        r"\dagger" in r for r in rows_out) else ""
+    main.append(r"(Section~\ref{sec:metrics-eval}). Mean $\pm$ std over three seeds" + dag_note + r".")
+    main.append(r"Contracts below the")
     main.append(r"first exit's cost of a backbone cannot be met and are omitted.")
     main.append(r"The subscript is the realized")
     main.append(r"test compute. Bold marks the row's accuracy leader and any method at")
