@@ -153,7 +153,7 @@ def fmt(entry: Optional[Tuple[float, float, int, float]], bold: bool) -> str:
 
 def undominated(entries: Dict[str, Optional[Tuple[float, float, int, float]]]) -> set:
     """Bold set for a row: the accuracy leader, plus any entry whose accuracy is
-    within combined std of the leader at materially lower realized compute."""
+    whose error bar overlaps the leader's at materially lower realized compute."""
     valid = {m: e for m, e in entries.items() if e is not None}
     if not valid:
         return set()
@@ -163,7 +163,7 @@ def undominated(entries: Dict[str, Optional[Tuple[float, float, int, float]]]) -
     for m, (a, s, _, mac) in valid.items():
         if m == leader:
             continue
-        if lm - a <= (s ** 2 + ls ** 2) ** 0.5 and mac < lmac - 0.01:
+        if lm - a <= s + ls and mac < lmac - 0.01:
             out.add(m)
     return out
 
@@ -216,9 +216,8 @@ def build_tables() -> str:
     main.append(r"$\dagger$ marks entries with fewer seeds. Contracts below the")
     main.append(r"first exit's cost of a backbone cannot be met and are omitted.")
     main.append(r"The subscript is the realized")
-    main.append(r"test compute. Bold marks the row's accuracy leader and any method that")
-    main.append(r"matches it within one combined standard deviation at lower realized")
-    main.append(r"compute.}")
+    main.append(r"test compute. Bold marks the row's accuracy leader and any method at")
+    main.append(r"lower realized compute whose error bar overlaps the leader's.}")
     main.append(r"\label{tab:budget-main}")
     main.append(r"\renewcommand{\arraystretch}{1.08}")
     main.append(r"\setlength{\tabcolsep}{3pt}")

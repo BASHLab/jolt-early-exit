@@ -4,7 +4,8 @@ shift-eval files under outputs/.
 Reports, with the sources the paper cites:
   1. Main-table envelope: JOLT's worst deficit and best lead against the
      strongest baseline per dataset-budget pairing, and the win/tie/loss
-     partition at one combined standard deviation.
+     partition, a tie being overlapping error bars (the gap to the
+     strongest baseline within the sum of the two seed standard deviations).
   2. Per-baseline worst deficit against the strongest method anywhere.
   3. Shift envelope under the shared quantile policy: worst deficit and
      best lead against the strongest clean baseline across all severities.
@@ -74,9 +75,9 @@ def main_table_envelope():
             if best is None:
                 continue
             d = om - best[0]
-            comb = (os_ ** 2 + best[1] ** 2) ** 0.5
+            band = os_ + best[1]
             deltas.append((d, cell["name"], b))
-            partition["win" if d > comb else "loss" if d < -comb else "tie"] += 1
+            partition["win" if d > band else "loss" if d < -band else "tie"] += 1
             row_best = max([om] + [v[0] for v in per_method.values()])
             for m, (mm, _) in per_method.items():
                 base_worst[m] = max(base_worst[m], row_best - mm)
