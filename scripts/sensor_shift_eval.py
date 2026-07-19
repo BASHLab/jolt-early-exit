@@ -99,6 +99,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--cell", required=True, choices=["UCI-HAR", "PAMAP2"])
     ap.add_argument("--force", action="store_true")
+    ap.add_argument("--only", default=None, help="substring filter on method dir names")
     args = ap.parse_args()
 
     cell = CELLS[args.cell]
@@ -111,6 +112,8 @@ def main() -> None:
         if not root.exists():
             continue
         for mdir in sorted(p for p in root.iterdir() if p.is_dir()):
+            if args.only and args.only not in mdir.name:
+                continue
             for seed_dir in sorted(mdir.glob("seed*")):
                 if (seed_dir / "checkpoint.pt").exists() and (seed_dir / "metrics.json").exists():
                     run_dirs.append(seed_dir)

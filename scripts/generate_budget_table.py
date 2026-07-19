@@ -140,6 +140,56 @@ def candidate_at_contract(pool: Dict[str, List[dict]], b: float) -> Tuple[str, L
     return best, pool[best]
 
 
+def baseline_default_runs(cell: dict, m: str) -> List[dict]:
+    """The baseline's published-default arm from the cell root."""
+    root = REPO / (cell["fix_root"] if m in FIXED else cell["base_roots"][0])
+    out = []
+    for mdir in (sorted(root.iterdir()) if root.exists() else []):
+        # default arm only: the plain method dir, never a __<knob> variant
+        if mdir.is_dir() and (mdir.name == m or mdir.name.startswith(m + "_seed")):
+            for sd in sorted(mdir.glob("seed*")):
+                bj = sd / "budgeted.json"
+                if bj.exists():
+                    out.append(json.loads(bj.read_text()))
+    return out
+
+
+def baseline_tuned_pool(cell: dict, m: str) -> Dict[str, List[dict]]:
+    """Off-default knob arms (the published default scaled by one half and by
+    two), named ``<method>__<knob>`` in the cell root, grouped by knob tag,
+    >=3 seeds. BEEM is excluded: the CE-only retrain is the only faithful BEEM."""
+    if m == "beem":
+        return {}
+    root = REPO / (cell["fix_root"] if m in FIXED else cell["base_roots"][0])
+    pool: Dict[str, List[dict]] = {}
+    for mdir in (sorted(root.iterdir()) if root.exists() else []):
+        if not mdir.is_dir() or not mdir.name.startswith(m + "__"):
+            continue
+        tag = re.sub(r"_seed\d+$", "", mdir.name.split("__", 1)[1])
+        for sd in sorted(mdir.glob("seed*")):
+            bj = sd / "budgeted.json"
+            if bj.exists():
+                pool.setdefault(tag, []).append(json.loads(bj.read_text()))
+    return {t: r for t, r in pool.items() if len(r) >= 3}
+
+
+def baseline_pick(cell: dict, m: str, b: float):
+    """Symmetric HP selection for a baseline: validation-best over
+    {published default} U {tuned off-defaults} at contract b, the same rule
+    JOLT gets. Returns (knob tag, stat, picked runs)."""
+    cands = {"default": baseline_default_runs(cell, m)}
+    cands.update(baseline_tuned_pool(cell, m))
+    scored = {}
+    for tag, runs in cands.items():
+        vs = [v for v in (val_acc_at_budget(r["curve"], b) for r in runs) if v is not None]
+        if vs:
+            scored[tag] = mean(vs)
+    if not scored:
+        return "default", None, []
+    best = max(scored, key=lambda t: scored[t])
+    return best, stat(cands[best], b), cands[best]
+
+
 def fmt(entry: Optional[Tuple[float, float, int, float]], bold: bool) -> str:
     if entry is None:
         return "--"
@@ -171,19 +221,12 @@ def undominated(entries: Dict[str, Optional[Tuple[float, float, int, float]]]) -
 def build_tables() -> str:
     rows_out = []
     picked_hps = {}
+    picked_base = {}
     for cell in CELLS:
         if cell.get("pending"):
             continue
-        # baseline runs
-        method_runs: Dict[str, List[dict]] = {}
-        for m in BASELINES:
-            if m in FIXED:
-                method_runs[m] = seed_jsons(REPO / cell["fix_root"], m)
-            else:
-                runs = []
-                for r in cell["base_roots"]:
-                    runs.extend(seed_jsons(REPO / r, m))
-                method_runs[m] = runs
+        # default-arm runs, used only for the feasibility check
+        method_runs: Dict[str, List[dict]] = {m: baseline_default_runs(cell, m) for m in BASELINES}
         pool = candidate_tag_pool(cell)
         feasible = [b for b in BUDGETS
                     if any(stat(runs, b) for runs in method_runs.values())
@@ -192,7 +235,13 @@ def build_tables() -> str:
         for b in feasible:
             hp, cand = candidate_at_contract(pool, b)
             picked_hps[f"{cell['name']} B{b}"] = (hp, len(cand))
-            entries = {m: stat(runs, b) for m, runs in method_runs.items()}
+            # symmetric per-baseline HP selection (validation-best over
+            # {default} U {tuned off-defaults}), the same rule JOLT gets
+            entries = {}
+            for m in BASELINES:
+                tag, st, _ = baseline_pick(cell, m, b)
+                entries[m] = st
+                picked_base[f"{cell['name']} B{b} {m}"] = tag
             entries["ours"] = stat(cand, b)
             bold_set = undominated(entries)
             cols = [fmt(entries[m], m in bold_set) for m in BASELINES + ["ours"]]
@@ -206,6 +255,11 @@ def build_tables() -> str:
     main.append("% Candidate HP per (cell, contract) (rule: max val acc at that contract):")
     for name, (hp, n) in picked_hps.items():
         main.append(f"%   {name:14s} {hp}  (n={n})")
+    nondef = {k: v for k, v in picked_base.items() if v != "default"}
+    main.append("% Baselines: symmetric HP selection (default U tuned off-defaults, max val acc).")
+    main.append(f"%   tuned-away-from-default in {len(nondef)} of {len(picked_base)} baseline-cells:")
+    for k, v in nondef.items():
+        main.append(f"%     {k}: {v}")
     main.append(r"\providecommand{\mathresized}[1]{\text{\fontsize{5.5}{6}\selectfont #1}}")
     main.append(r"\begin{table*}[!tbp]")
     main.append(r"\centering")

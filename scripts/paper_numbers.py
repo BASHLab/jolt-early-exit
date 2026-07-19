@@ -29,8 +29,8 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "scripts"))
 
 from generate_budget_table import (  # noqa: E402
-    BASELINES, BUDGETS, CELLS, candidate_at_contract, candidate_tag_pool,
-    seed_jsons,
+    BASELINES, BUDGETS, CELLS, baseline_pick, candidate_at_contract,
+    candidate_tag_pool, seed_jsons, stat as gstat,
 )
 from generate_shift_tables import (  # noqa: E402
     COND_SETS, SPECS, clean_q_and_macs, load_rows,
@@ -63,13 +63,12 @@ def main_table_envelope():
             best = None
             per_method = {}
             for m in BASELINES:
-                runs = []
-                for root in set(cell["base_roots"] + cell["cand_roots"] + [cell["fix_root"]]):
-                    runs.extend(seed_jsons(REPO / root, m))
-                vals = [v for r in runs if (v := acc_at(r, b)) is not None]
-                if not vals:
+                # symmetric HP selection (validation-best over default + tuned
+                # off-defaults), the same rule the candidate gets
+                _, st, _ = baseline_pick(cell, m, b)
+                if st is None:
                     continue
-                per_method[m] = stat(vals)
+                per_method[m] = (st[0], st[1])
                 if best is None or per_method[m][0] > best[0]:
                     best = per_method[m]
             if best is None:
@@ -143,6 +142,45 @@ def interaction():
         print(f"  {name}: into bare chain {pd - poe:+.2f} | into weighting+Brier {full - pmb:+.2f}")
 
 
+def pareto_and_shift():
+    print("== 6. Pareto membership + severest-shift ahead count ==")
+    undom = total = 0
+    for cell in CELLS:
+        pool = candidate_tag_pool(cell)
+        for b in BUDGETS:
+            ours = gstat(candidate_at_contract(pool, b)[1], b)
+            if ours is None:
+                continue
+            others = [st for m in BASELINES
+                      if (st := baseline_pick(cell, m, b)[1]) is not None]
+            if not others:
+                continue
+            total += 1
+            dominated = any(
+                x[0] >= ours[0] - 1e-9 and x[3] <= ours[3] + 1e-9
+                and (x[0] > ours[0] + 1e-9 or x[3] < ours[3] - 1e-9)
+                for x in others)
+            undom += 0 if dominated else 1
+    print(f"  JOLT Pareto-undominated in {undom} of {total} comparisons")
+    ahead = 0
+    for name, fname, cond, pick, base in SPECS:
+        def sev(pat):
+            vals = []
+            for rd in sorted(REPO.glob(pat)):
+                cq = clean_q_and_macs(rd)
+                if cq is None:
+                    continue
+                q_star, _ = cq
+                rows = load_rows(rd, fname, cond)
+                if rows:
+                    vals.append(min(rows, key=lambda r: abs(r["q"] - q_star))["q_accuracy"] * 100)
+            return mean(vals) if vals else None
+        o, b_ = sev(pick), sev(base)
+        if o is not None and b_ is not None and o > b_:
+            ahead += 1
+    print(f"  ahead of the tuned comparator at the severest shift on {ahead} of {len(SPECS)}")
+
+
 def calibration():
     print("== 5. operating-point calibration (opcal.json) ==")
     def eces(pat, b="0.5"):
@@ -170,3 +208,4 @@ if __name__ == "__main__":
     shift_envelope()
     interaction()
     calibration()
+    pareto_and_shift()

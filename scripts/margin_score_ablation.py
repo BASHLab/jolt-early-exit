@@ -11,6 +11,7 @@ Writes outputs/analysis/margin_score_ablation_cifar100.json.
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -92,7 +93,16 @@ def eval_score(model, cfg, cutoff, pem, device, score_type: str, cell_name: str)
 
 
 def main() -> None:
-    cell = CELLS["CIFAR-100"]
+    # margin-vs-entropy routing-score ablation over the six non-text cells
+    # (SST-2 excluded: entropy and the top-two margin induce the same ranking
+    # on a binary task).
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--cell", required=True,
+                    choices=["UCI-HAR", "PAMAP2", "CIFAR-100", "GSC v2",
+                             "ESC-50", "Tiny-ImageNet"])
+    args = ap.parse_args()
+    cellname = args.cell
+    cell = CELLS[cellname]
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     results = {}
     for method in METHODS:
@@ -106,12 +116,13 @@ def main() -> None:
         model, m, cutoff, pem, cfg = loaded
         results[method] = {}
         for score_type in ("entropy", "margin"):
-            r = eval_score(model, cfg, cutoff, pem, device, score_type, "CIFAR-100")
+            r = eval_score(model, cfg, cutoff, pem, device, score_type, cellname)
             results[method][score_type] = r
-            mean_q_acc = np.mean([v["q_acc"] for v in r["shift"].values()])
+            mean_q_acc = np.mean([v["q_acc"] for v in r["shift"].values()]) if r["shift"] else float("nan")
             print(f"[{method}] {score_type}: clean={r['clean_acc']:.2f} "
                   f"shift_q_acc={mean_q_acc:.2f} auroc1={r['clean_auroc_exit1']:.4f}")
-    out = REPO / "outputs/analysis/margin_score_ablation_cifar100.json"
+    slug = cellname.lower().replace(" ", "").replace("-", "")
+    out = REPO / f"outputs/analysis/margin_score_ablation_{slug}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(results, indent=1))
     print(f"Wrote {out}")
