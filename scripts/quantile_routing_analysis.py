@@ -164,6 +164,45 @@ def ucb_bandit_route(
     }
 
 
+def build_reliability(score_col: np.ndarray, correct_col: np.ndarray,
+                      num_bins: int = 20):
+    """Per-exit reliability diagram over the routing score, built on clean
+    validation: bin the score, record empirical accuracy per bin. Used by the
+    PCEE policy comparator."""
+    lo, hi = float(score_col.min()), float(score_col.max())
+    edges = np.linspace(lo, hi, num_bins + 1)
+    bin_idx = np.digitize(score_col, edges[1:-1])
+    acc = np.zeros(num_bins, dtype=np.float64)
+    for b in range(num_bins):
+        sel = bin_idx == b
+        if sel.any():
+            acc[b] = float(correct_col[sel].mean())
+    return edges, acc
+
+
+def pcee_route(scores: np.ndarray, correct: np.ndarray,
+               per_exit_macs: Sequence[float],
+               diagrams: Sequence, delta: float) -> Dict[str, object]:
+    """PCEE (PABEE-family): exit at the first exit whose reliability-diagram
+    bin-estimated accuracy meets delta. A performance-target rule, not a
+    budget-targeting one."""
+    n, num_early = scores.shape
+    exit_idx = np.full(n, num_early, dtype=np.int64)
+    for j in range(num_early):
+        edges, acc = diagrams[j]
+        bin_idx = np.clip(np.digitize(scores[:, j], edges[1:-1]), 0, len(acc) - 1)
+        est = acc[bin_idx]
+        take = (exit_idx == num_early) & (est >= delta)
+        exit_idx[take] = j
+    cum = np.cumsum(np.asarray(per_exit_macs, dtype=np.float64))
+    counts = [int((exit_idx == j).sum()) for j in range(num_early + 1)]
+    return {
+        "accuracy": float(correct[np.arange(n), exit_idx].mean()),
+        "exit_counts": counts,
+        "macs_frac": float(cum[exit_idx].mean() / cum[-1]),
+    }
+
+
 def auroc(neg_scores: np.ndarray, labels: np.ndarray) -> float:
     """Rank-based AUROC of neg_scores (higher = predicted correct) vs labels."""
     order = np.argsort(neg_scores)

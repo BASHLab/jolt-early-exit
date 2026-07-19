@@ -203,9 +203,30 @@ def calibration():
             print(f"  {name:14s} full {o[0]:.3f} -> minus-Brier {loo[0]:.3f}")
 
 
+def policy_comparison():
+    """Section 6: policy overspend at the severest shift, from
+    generate_policy_drift.py's outputs/analysis/policy_drift.json."""
+    print("== 6. policy comparison under shift (budget overspend %) ==")
+    path = REPO / "outputs/analysis/policy_drift.json"
+    if not path.exists():
+        print("  policy_drift.json absent; run generate_policy_drift.py")
+        return
+    d = json.loads(path.read_text())
+    col = lambda p: {c: d[c]["over"][p] for c in d}
+    q, fr, pc, ba = col("quantile"), col("frozen"), col("pcee"), col("bandit")
+    within = [c for c in q if abs(q[c]) <= 0.5]
+    print(f"  cells: {len(d)}")
+    print(f"  frozen max overspend: {max(fr.values()):.1f}%")
+    print(f"  PCEE   max overspend: {max(pc.values()):.1f}%")
+    print(f"  bandit max overspend: {max(ba.values()):.1f}%")
+    print(f"  quantile within 0.4% on {len(within)} cells; "
+          f"two-worst {max(abs(q[c]) for c in q if c not in within):.1f}%")
+
+
 if __name__ == "__main__":
     main_table_envelope()
     shift_envelope()
     interaction()
     calibration()
     pareto_and_shift()
+    policy_comparison()
