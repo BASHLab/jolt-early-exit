@@ -108,10 +108,54 @@ COND_SETS = {
 }
 
 
+# Per-modality per-sample shift score matrices, for the deployable running
+# (streaming) quantile policy. The batch quantile re-estimates thresholds from
+# the whole shifted stream; the streaming policy holds a running-window quantile,
+# which is what actually deploys and what fig:policy_drift reports.
+_NPZ = {"shift_eval.json": "exit_scores_shift.npz",
+        "sensor_shift_eval.json": "exit_scores_sshift.npz",
+        "audio_shift_eval.json": "exit_scores_ashift.npz",
+        "text_shift_eval.json": "exit_scores_tshift.npz"}
+_STREAM_WINDOW = 256
+
+
+def _streaming_by_rung(run_dir: Path, fname: str, q_star: float, rungs):
+    """Streaming-quantile (window 256) accuracy% and MAC-frac per rung, from the
+    per-sample shift matrices. {} if the npz is absent (caller falls back to the
+    batch JSON values)."""
+    import numpy as np
+    from quantile_routing_analysis import streaming_route, thresholds_for_population
+    clean = run_dir / "exit_scores.npz"
+    shift = run_dir / _NPZ.get(fname, "")
+    if not clean.exists() or not shift.exists():
+        return {}
+    z, zs = np.load(clean), np.load(shift)
+    thr = thresholds_for_population(z["scores_val"].astype(np.float64), q_star)
+    pem = z["per_exit_macs"].tolist()
+    out = {}
+    for c in rungs:
+        n = c[-1]  # trailing severity digit (sev5 -> 5, typo_5 -> 5)
+        accs, macs = [], []
+        for k in zs.files:
+            if not (k.startswith("scores_") and k.endswith(f"_{n}")):
+                continue
+            sc = zs[k].astype(np.float64)
+            co = zs["correct_" + k[len("scores_"):]].astype(np.float64)
+            idx = np.argsort((np.arange(len(sc)) * 2654435761) % 2**32)
+            r = streaming_route(sc[idx], co[idx], q_star, pem, _STREAM_WINDOW, thr)
+            accs.append(r["accuracy"] * 100)
+            macs.append(r["macs_frac"])
+        if accs:
+            out[c] = (float(np.mean(accs)), float(np.mean(macs)))
+    return out
+
+
 def ladder_for(glob_pat: str, fname: str):
     """Per-rung mean accuracy (clean, mild, moderate, severe) for the
     quantile policy and, for the frozen row, the same rungs under
-    thresholds frozen from clean validation."""
+    thresholds frozen from clean validation. The quantile rows use the
+    deployable running (streaming) policy where the per-sample matrices are
+    present, falling back to the batch quantile otherwise."""
     rungs = COND_SETS[fname]
     clean, cal = [], []
     quant, froz = {c: [] for c in rungs}, {c: [] for c in rungs}
@@ -122,6 +166,7 @@ def ladder_for(glob_pat: str, fname: str):
             continue
         q_star, calib = cq
         cal.append(calib)
+        stream = _streaming_by_rung(run_dir, fname, q_star, rungs)
         bj = json.loads((run_dir / "budgeted.json").read_text())
         ok = [r for r in bj["curve"] if r["val"]["macs_frac"] <= B]
         if ok:
@@ -131,9 +176,14 @@ def ladder_for(glob_pat: str, fname: str):
             if rows is None:
                 continue
             row = min(rows, key=lambda r: abs(r["q"] - q_star))
-            quant[c].append(row["q_accuracy"] * 100)
+            if c in stream:
+                acc_c, mac_c = stream[c]
+                quant[c].append(acc_c)
+                qmac[c].append(mac_c)
+            else:
+                quant[c].append(row["q_accuracy"] * 100)
+                qmac[c].append(row.get("q_macs_frac", row["macs_frac"]))
             froz[c].append(row["accuracy"] * 100)
-            qmac[c].append(row.get("q_macs_frac", row["macs_frac"]))
             fmac[c].append(row["macs_frac"])
     if not clean:
         return None
