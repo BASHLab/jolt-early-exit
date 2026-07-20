@@ -44,11 +44,11 @@ configurations, one per dataset:
 |---|---|---|
 | UCI-HAR | `configs/ucihar_tst.yaml` | `gamma_distill=0.25 lambda_brier=0.15 lambda_ce=2.0` |
 | PAMAP2 | `configs/pamap2_inceptiontime_canonical27.yaml` | `gamma_distill=8.0 lambda_brier=1.0` |
-| CIFAR-100 | `configs/cifar100_convmixer_256_8.yaml` | `gamma_distill=2.0 lambda_brier=0.5 lambda_ce=4.0` |
-| GSC v2 | `configs/gsc_v2_matchboxnet.yaml` | `gamma_distill=0.5 lambda_brier=0.5` |
+| CIFAR-100 | `configs/cifar100_convmixer_256_8.yaml` | `gamma_distill=2.0 lambda_brier=0.5 lambda_ce=2.0` |
+| GSC v2 | `configs/gsc_v2_matchboxnet.yaml` | `gamma_distill=0.5 lambda_brier=0.5 lambda_ce=2.0` |
 | SST-2 | `configs/glue_sst2_bert_base_multiexit_e3612.yaml` | `gamma_distill=16.0 lambda_brier=0.5 lambda_ce=0.5` |
 | ESC-50 | `configs/esc50_efficientnet_b0_v2.yaml` | `gamma_distill=16.0 lambda_brier=2.0` |
-| Tiny-ImageNet | `configs/tinyimagenet_cct7.yaml` | `gamma_distill=2.0 lambda_brier=0.5` |
+| Tiny-ImageNet | `configs/tinyimagenet_cct7.yaml` | `gamma_distill=2.0 lambda_brier=0.5 lambda_ce=4.0` |
 
 Example, CIFAR-100, three seeds of the JOLT configuration and one baseline:
 
@@ -57,9 +57,9 @@ for K in 0 1 2; do
   python scripts/screen.py \
     --config configs/cifar100_convmixer_256_8.yaml --data-root data \
     --candidates poe_distill_mtl_brier \
-    --component gamma_distill=2.0 --component lambda_brier=0.5 --component lambda_ce=4.0 \
+    --component gamma_distill=2.0 --component lambda_brier=0.5 --component lambda_ce=2.0 \
     --output-root outputs/cifar100 --base-seed $((42+K)) --seeds 1 \
-    --variant-tag "g2.0-lb0.5-ce4.0_seed${K}" --skip-leaderboard
+    --variant-tag "g2.0-lb0.5-ce2.0_seed${K}" --skip-leaderboard
 done
 python scripts/screen.py \
   --config configs/cifar100_convmixer_256_8.yaml --data-root data \
@@ -114,9 +114,9 @@ for ARM in poe_multitask_brier poe_distill_brier poe_distill_mtl; do
     python scripts/screen.py \
       --config configs/cifar100_convmixer_256_8.yaml --data-root data \
       --candidates $ARM \
-      --component gamma_distill=2.0 --component lambda_brier=0.5 --component lambda_ce=4.0 \
+      --component gamma_distill=2.0 --component lambda_brier=0.5 --component lambda_ce=2.0 \
       --output-root outputs/cifar100_loo --base-seed $((42+K)) --seeds 1 \
-      --variant-tag "g2.0-lb0.5-ce4.0_seed${K}" --skip-leaderboard
+      --variant-tag "g2.0-lb0.5-ce2.0_seed${K}" --skip-leaderboard
   done
 done
 ```
@@ -125,7 +125,9 @@ done
 the learned weighting, `poe_distill_mtl` removes the Brier anchor. To
 remove the final-exit anchor on a dataset that selects it, retrain the
 pick without its `lambda_ce` component; datasets whose selection sets
-`lambda_ce=0` have no anchor to remove.
+`lambda_ce=0` have no anchor to remove. To remove the entropy-monotonicity
+penalty, retrain the pick with `--component rho_max=0` into the `_loo`
+root under the tag suffix `_rho0`.
 
 For the interaction analysis, additionally train the stepwise arms
 `poe_anneal` (the bare PoE chain) and `poe_distill` at the same

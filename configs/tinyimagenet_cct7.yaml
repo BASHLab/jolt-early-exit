@@ -9,8 +9,7 @@
 # Backbone: cct7_exit (3 internal SeqPool exits + 1 final = 4 classifiers); ~4.1M params
 # at num_classes=200, under the 5M on-device cap.
 #
-# Future-work status: this cell is NOT in Tier 1 / Tier 2 of the ICTAI 2026 submission;
-# it's the harder-image extension we'll run after the Tier-1 winner is locked.
+# One of the seven evaluation datasets in the paper.
 
 name: tinyimagenet_cct7
 seed: 42

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Policy comparison under distribution shift, across all seven datasets.
 
-Four inference-time exit policies are run on the SAME trained JOLT model, all
+Five inference-time exit policies are run on the SAME trained JOLT model, all
 pinned to the same clean B=0.5 operating point, then evaluated at the severest
 shift condition of each dataset:
 
@@ -9,6 +9,7 @@ shift condition of each dataset:
   frozen    MSDNet budgeted-batch: absolute thresholds frozen from clean val
   pcee      reliability-bin patience rule, delta pinned to the clean budget
   bandit    UCB threshold selection over a fixed arm grid
+  rc_eenn   risk-controlled thresholds (Learn-then-Test), frozen at test
 
 For each policy we report MAC overspend % = max(0, realized - budget)/budget,
 where "budget" is the validation-calibrated compute at the operating point,
@@ -31,7 +32,7 @@ sys.path.insert(0, str(REPO / "scripts"))
 
 from quantile_routing_analysis import (  # noqa: E402  (torch-free primitives)
     build_reliability, pcee_route, simulate_routing, streaming_route,
-    thresholds_for_population, ucb_bandit_route,
+    thresholds_for_population, ucb_bandit_route, dtaci_route, rc_eenn_thresholds,
 )
 
 B = 0.5           # operating point (matches the shift figure)
@@ -41,14 +42,14 @@ WINDOW = 256      # running-quantile streaming window
 CELLS = [
     ("UCI-HAR", "outputs/ucihar/jolt__g0.25-lb0.15-ce2.0*/seed*", "exit_scores_sshift.npz"),
     ("PAMAP2", "outputs/pamap2/jolt__g8.0-lb1.0*/seed*", "exit_scores_sshift.npz"),
-    ("GSC v2", "outputs/gsc/jolt__g0.5-lb0.5*/seed*", "exit_scores_ashift.npz"),
+    ("GSC v2", "outputs/gsc/jolt__g0.5-lb0.5-ce2.0*/seed*", "exit_scores_ashift.npz"),
     ("ESC-50", "outputs/esc50/jolt__g16.0-lb2.0*/seed*", "exit_scores_ashift.npz"),
     ("SST-2", "outputs/sst2/jolt__g16.0-lb0.5-ce0.5*/seed*", "exit_scores_tshift.npz"),
-    ("CIFAR-100", "outputs/cifar100/jolt__g2.0-lb0.5-ce4.0*/seed*", "exit_scores_shift.npz"),
-    ("Tiny-ImageNet", "outputs/tinyimagenet/jolt__g2.0-lb0.5*/seed*", "exit_scores_shift.npz"),
+    ("CIFAR-100", "outputs/cifar100/jolt__g2.0-lb0.5-ce2.0*/seed*", "exit_scores_shift.npz"),
+    ("Tiny-ImageNet", "outputs/tinyimagenet/jolt__g2.0-lb0.5-ce4.0*/seed*", "exit_scores_shift.npz"),
 ]
 
-POLICIES = ["quantile", "frozen", "pcee", "bandit"]
+POLICIES = ["quantile", "frozen", "pcee", "bandit", "rc_eenn"]
 
 
 def operating_point(run_dir: Path):
@@ -79,6 +80,7 @@ def run_seed(run_dir: Path, npz_name: str):
     num_early = scores_val.shape[1]
 
     thr_clean = thresholds_for_population(scores_val, q)
+    rc_thr = rc_eenn_thresholds(scores_val, correct_val, pem, budget)
     smax = float(scores_val.max())
     arms = list(np.linspace(0.05 * smax, 0.95 * smax, 10))
 
@@ -106,6 +108,7 @@ def run_seed(run_dir: Path, npz_name: str):
             "frozen": simulate_routing(sc, co, thr_clean, pem),
             "pcee": pcee_route(sc, co, pem, diagrams, pcee_delta),
             "bandit": ucb_bandit_route(sc, co, pem, arms),
+            "rc_eenn": simulate_routing(sc, co, rc_thr, pem),
         }
         for p, r in routes.items():
             over[p].append((r["macs_frac"] - budget) / budget * 100.0)
@@ -149,16 +152,17 @@ def render(data):
 
     names = [c[0] for c in CELLS if c[0] in data]
     labels = {"quantile": "Running quantile (ours)", "frozen": "Frozen thresholds",
-              "pcee": "PCEE", "bandit": "UCB bandit"}
+              "pcee": "PCEE", "bandit": "UCB bandit",
+              "rc_eenn": "RC-EENN (risk control)"}
     colors = {"quantile": "#d4a017", "frozen": "#4a6fa5",
-              "pcee": "#c0504d", "bandit": "#7f7f7f"}
+              "pcee": "#c0504d", "bandit": "#7f7f7f", "rc_eenn": "#59a14f"}
     x = np.arange(len(names))
-    w = 0.2
+    w = 0.15
     fig, ax = plt.subplots(figsize=(7.0, 2.6))
     for i, p in enumerate(POLICIES):
         # Overspend of a budget cap is max(0, realized - budget).
         vals = [max(0.0, data[n]["over"][p]) for n in names]
-        ax.bar(x + (i - 1.5) * w, vals, w, label=labels[p], color=colors[p])
+        ax.bar(x + (i - 2) * w, vals, w, label=labels[p], color=colors[p])
     ax.axhline(0, color="black", lw=0.6)
     ax.set_ylabel("Budget overspend (%)")
     ax.set_xticks(x)
@@ -175,4 +179,6 @@ def render(data):
 
 
 if __name__ == "__main__":
-    render(build())
+    # The bar-chart render is superseded by the per-severity overspend panel
+    # (make_shift_fig.py); only the json artifact is maintained.
+    build()

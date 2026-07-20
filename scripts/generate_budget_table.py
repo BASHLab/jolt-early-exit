@@ -197,7 +197,7 @@ def fmt(entry: Optional[Tuple[float, float, int, float]], bold: bool) -> str:
     core = f"{m:.2f}" + (r"\,{\tiny$\pm$" + f"{s:.2f}" + "}")
     if n < 3:
         core += r"$^{\dagger}$"
-    core += r"$_{\mathresized{" + f"{mc:.2f}".lstrip("0") + r"}}$"
+    core += r"$_{\mathresized{" + f"{mc:.3f}".lstrip("0") + r"}}$"
     return r"\textbf{" + core + "}" if bold else core
 
 

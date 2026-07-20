@@ -40,10 +40,10 @@ SPECS = [
      "outputs/pamap2/jolt__g8.0-lb1.0*/seed*",
      "outputs/pamap2/jei_dnn__cl0.2*/seed*"),
     ("CIFAR-100", "shift_eval.json", "sev5",
-     "outputs/cifar100/jolt__g2.0-lb0.5-ce4.0*/seed*",
+     "outputs/cifar100/jolt__g2.0-lb0.5-ce2.0*/seed*",
      "outputs/cifar100/poe_jazbec*/seed*"),
     ("GSC v2", "audio_shift_eval.json", "sev5",
-     "outputs/gsc/jolt__g0.5-lb0.5*/seed*",
+     "outputs/gsc/jolt__g0.5-lb0.5-ce2.0*/seed*",
      "outputs/gsc/meronen_laplace*/seed*"),
     ("SST-2", "text_shift_eval.json", "typo_5",
      "outputs/sst2/jolt__g16.0-lb0.5-ce0.5*/seed*",
@@ -52,7 +52,7 @@ SPECS = [
      "outputs/esc50/jolt__g16.0-lb2.0*/seed*",
      "outputs/esc50/meronen_laplace*/seed*"),
     ("Tiny-ImageNet", "shift_eval.json", "sev5",
-     "outputs/tinyimagenet/jolt__g2.0-lb0.5*/seed*",
+     "outputs/tinyimagenet/jolt__g2.0-lb0.5-ce4.0*/seed*",
      "outputs/tinyimagenet/poe_jazbec*/seed*"),
 ]
 B = 0.5
@@ -325,23 +325,15 @@ def render_ladder_figure():
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     import numpy as np
-    base_names = {"UCI-HAR": "AdaLoss", "PAMAP2": "JEI-DNN",
-                  "CIFAR-100": "PoE", "GSC v2": "Laplace",
-                  "SST-2": "BoostNet", "ESC-50": "Laplace",
-                  "Tiny-ImageNet": "PoE"}
     fig, axes = plt.subplots(2, 7, figsize=(7.1, 2.9))
     x = np.arange(4)
     for i, (name, fname, cond, pick_glob, base_glob) in enumerate(SPECS):
         ours = ladder_for(pick_glob, fname)
-        base = ladder_for(base_glob, fname)
         if ours is None:
             continue
         oc, oq, of, calib, qmac, fmac = ours
         top, bot = axes[0][i], axes[1][i]
-        top.plot(x, [oc] + oq, "o-", color="#d4a017", lw=1.6, ms=2.5, zorder=3, label="JOLT")
-        if base:
-            top.plot(x, [base[0]] + base[1], "s-", color="#1f77b4", lw=1.0, ms=2,
-                     zorder=2, label=base_names[name])
+        top.plot(x, [oc] + oq, "o-", color="#d4a017", lw=1.6, ms=2.5, zorder=3, label="quantile")
         top.plot(x, [oc] + of, "^--", color="0.55", lw=0.9, ms=2, zorder=1, label="frozen")
         top.set_title(name, fontsize=7)
         top.set_xticks(x)
@@ -421,7 +413,8 @@ def main():
         print(f"wrote {out}")
     if args.figure:
         render_figure()
-        render_ladder_figure()
+        # render_ladder_figure() is superseded by make_shift_fig.py's
+        # five-policy overspend panel, which owns figures/shift_ladders.pdf.
 
 
 if __name__ == "__main__":

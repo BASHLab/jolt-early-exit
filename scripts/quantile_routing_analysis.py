@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
@@ -162,6 +163,88 @@ def ucb_bandit_route(
         "exit_counts": counts,
         "macs_frac": float(cum[exit_idx].mean() / cum[-1]),
     }
+
+
+def dtaci_route(
+    scores: np.ndarray,
+    correct: np.ndarray,
+    q: float,
+    per_exit_macs: Sequence[float],
+    init_thresholds: Sequence[float],
+    gammas: Sequence[float] = (0.005, 0.02, 0.08, 0.32),
+) -> Dict[str, object]:
+    """DtACI (Gibbs & Candes 2024): parameter-free online quantile via K ACI
+    experts at different learning rates, aggregated by exp-weighted pinball loss.
+    Per exit, targets exit fraction q online; no hand-set step size. Included to
+    show the fixed-rate policy is not a tuned step size."""
+    n, num_early = scores.shape
+    K = len(gammas)
+    theta = np.array([[float(init_thresholds[j]) for _ in range(K)] for j in range(num_early)])
+    w = np.ones((num_early, K))
+    sigma = 0.02  # expert-weight learning rate
+    exit_idx = np.empty(n, dtype=np.int64)
+    for i in range(n):
+        pos = num_early
+        for j in range(num_early):
+            wj = w[j] / w[j].sum()
+            thr_j = float(wj @ theta[j])
+            s = float(scores[i, j])
+            exited = s < thr_j
+            # pinball loss of each expert's quantile at coverage q, then reweight
+            err = np.array([1.0 if s < theta[j, k] else 0.0 for k in range(K)])
+            pinball = np.where(err >= 1, (1 - q) * (theta[j] - s), q * (s - theta[j]))
+            w[j] = w[j] * np.exp(-sigma * pinball)
+            w[j] = np.clip(w[j], 1e-8, None)
+            # ACI update each expert toward coverage q
+            theta[j] = theta[j] + gammas * (q - err)
+            if exited:
+                pos = j
+                break
+        exit_idx[i] = pos
+    cum = np.cumsum(np.asarray(per_exit_macs, dtype=np.float64))
+    counts = [int((exit_idx == j).sum()) for j in range(num_early + 1)]
+    return {"accuracy": float(correct[np.arange(n), exit_idx].mean()),
+            "exit_counts": counts, "macs_frac": float(cum[exit_idx].mean() / cum[-1])}
+
+
+def rc_eenn_thresholds(scores_val: np.ndarray, correct_val: np.ndarray,
+                       per_exit_macs: Sequence[float], budget: float,
+                       delta: float = 0.1) -> List[float]:
+    """RC-EENN / Fast-yet-Safe (Jazbec 2024): Learn-then-Test picks per-exit
+    thresholds on clean calibration that bound the early-exit error risk with a
+    Hoeffding-valid, Bonferroni-corrected p-value, frozen at test. We sweep the
+    risk level so the clean-calibration compute lands at the budget, then return
+    that (frozen) threshold vector. Under shift the guarantee, and the budget,
+    break, which is what the overspend figure exposes."""
+    n, num_early = scores_val.shape
+    cum = np.cumsum(np.asarray(per_exit_macs, dtype=np.float64))
+    order = np.linspace(scores_val.min(), scores_val.max(), 60)
+    hoeff = math.sqrt(math.log(1.0 / delta) / (2.0 * n)) if n > 0 else 0.0
+    best_thr, best_gap = list(order[-1:]) * num_early, 1e9
+    for alpha in np.linspace(0.02, 0.6, 40):
+        # per-exit: largest threshold (most aggressive early-exit) whose
+        # LTT-valid early-exit error (empirical + Hoeffding slack) <= alpha
+        thr = []
+        remaining = np.ones(n, dtype=bool)
+        for j in range(num_early):
+            chosen = order[0]
+            for t in order:
+                take = remaining & (scores_val[:, j] < t)
+                if take.sum() < 10:
+                    chosen = t; continue
+                err = 1.0 - correct_val[take, j].mean()
+                if err + hoeff <= alpha:
+                    chosen = t
+                else:
+                    break
+            thr.append(float(chosen))
+            remaining &= ~(remaining & (scores_val[:, j] < chosen))
+        # realized clean compute of this threshold vector
+        r = simulate_routing(scores_val, correct_val, thr, per_exit_macs)
+        gap = abs(r["macs_frac"] - budget)
+        if gap < best_gap:
+            best_gap, best_thr = gap, thr
+    return best_thr
 
 
 def build_reliability(score_col: np.ndarray, correct_col: np.ndarray,

@@ -13,6 +13,14 @@ Reports, with the sources the paper cites:
      versus added to the chain with the weighting and Brier anchor.
   5. Operating-point calibration: ECE and NLL of the JOLT configuration
      versus the strongest baseline, and ECE with the Brier anchor removed.
+  6. Pareto membership on the accuracy-compute plane, for JOLT and for the
+     best baseline, with the comparisons where JOLT is dominated named.
+  7. Policy comparison under shift: per-policy budget overspend at the
+     severest condition, and the largest accuracy gain any rule buys over
+     the running quantile together with its overspend cost.
+  8. Baseline-collapse diagnoses: JEI-DNN's gate concentration and per-exit
+     starvation, EENet/BEEM's untrained first exit, and the frozen rule's
+     zero accuracy gain for its SST-2 overspend.
 
 Every number is a mean over the seeds present; run the training and
 evaluation commands in the README first.
@@ -33,7 +41,7 @@ from generate_budget_table import (  # noqa: E402
     candidate_tag_pool, seed_jsons, stat as gstat,
 )
 from generate_shift_tables import (  # noqa: E402
-    COND_SETS, SPECS, clean_q_and_macs, load_rows,
+    COND_SETS, SPECS, clean_q_and_macs, ladder_for, load_rows,
 )
 
 
@@ -142,43 +150,49 @@ def interaction():
         print(f"  {name}: into bare chain {pd - poe:+.2f} | into weighting+Brier {full - pmb:+.2f}")
 
 
-def pareto_and_shift():
-    print("== 6. Pareto membership + severest-shift ahead count ==")
+def pareto():
+    print("== 6. Pareto membership (accuracy-compute plane) ==")
+
+    def dominated_by(point, others):
+        return any(
+            x[0] >= point[0] - 1e-9 and x[3] <= point[3] + 1e-9
+            and (x[0] > point[0] + 1e-9 or x[3] < point[3] - 1e-9)
+            for x in others)
+
     undom = total = 0
+    dom_cells = []
+    rows = []  # (cell, b, ours, per-method stats) for the baseline pass
     for cell in CELLS:
         pool = candidate_tag_pool(cell)
         for b in BUDGETS:
             ours = gstat(candidate_at_contract(pool, b)[1], b)
             if ours is None:
                 continue
-            others = [st for m in BASELINES
-                      if (st := baseline_pick(cell, m, b)[1]) is not None]
-            if not others:
+            per = {m: st for m in BASELINES
+                   if (st := baseline_pick(cell, m, b)[1]) is not None}
+            if not per:
                 continue
             total += 1
-            dominated = any(
-                x[0] >= ours[0] - 1e-9 and x[3] <= ours[3] + 1e-9
-                and (x[0] > ours[0] + 1e-9 or x[3] < ours[3] - 1e-9)
-                for x in others)
-            undom += 0 if dominated else 1
+            if dominated_by(ours, list(per.values())):
+                dom_cells.append(f"{cell['name']} B{b}")
+            else:
+                undom += 1
+            rows.append((ours, per))
     print(f"  JOLT Pareto-undominated in {undom} of {total} comparisons")
-    ahead = 0
-    for name, fname, cond, pick, base in SPECS:
-        def sev(pat):
-            vals = []
-            for rd in sorted(REPO.glob(pat)):
-                cq = clean_q_and_macs(rd)
-                if cq is None:
-                    continue
-                q_star, _ = cq
-                rows = load_rows(rd, fname, cond)
-                if rows:
-                    vals.append(min(rows, key=lambda r: abs(r["q"] - q_star))["q_accuracy"] * 100)
-            return mean(vals) if vals else None
-        o, b_ = sev(pick), sev(base)
-        if o is not None and b_ is not None and o > b_:
-            ahead += 1
-    print(f"  ahead of the tuned comparator at the severest shift on {ahead} of {len(SPECS)}")
+    if dom_cells:
+        print(f"  dominated at: {', '.join(dom_cells)}")
+    best_m, best_n = None, -1
+    for m in BASELINES:
+        n = 0
+        for ours, per in rows:
+            if m not in per:
+                continue
+            others = [ours] + [v for k, v in per.items() if k != m]
+            if not dominated_by(per[m], others):
+                n += 1
+        if n > best_n:
+            best_m, best_n = m, n
+    print(f"  best baseline undominated in {best_n} comparisons ({best_m})")
 
 
 def calibration():
@@ -204,9 +218,9 @@ def calibration():
 
 
 def policy_comparison():
-    """Section 6: policy overspend at the severest shift, from
+    """Section 7: policy overspend at the severest shift, from
     generate_policy_drift.py's outputs/analysis/policy_drift.json."""
-    print("== 6. policy comparison under shift (budget overspend %) ==")
+    print("== 7. policy comparison under shift (budget overspend %) ==")
     path = REPO / "outputs/analysis/policy_drift.json"
     if not path.exists():
         print("  policy_drift.json absent; run generate_policy_drift.py")
@@ -214,13 +228,72 @@ def policy_comparison():
     d = json.loads(path.read_text())
     col = lambda p: {c: d[c]["over"][p] for c in d}
     q, fr, pc, ba = col("quantile"), col("frozen"), col("pcee"), col("bandit")
+    rc = col("rc_eenn")
     within = [c for c in q if abs(q[c]) <= 0.5]
     print(f"  cells: {len(d)}")
-    print(f"  frozen max overspend: {max(fr.values()):.1f}%")
-    print(f"  PCEE   max overspend: {max(pc.values()):.1f}%")
-    print(f"  bandit max overspend: {max(ba.values()):.1f}%")
+    print(f"  frozen  max overspend: {max(fr.values()):.1f}%")
+    print(f"  PCEE    max overspend: {max(pc.values()):.1f}%")
+    print(f"  RC-EENN max overspend: {max(rc.values()):.1f}%")
+    print(f"  bandit  max overspend: {max(ba.values()):.1f}%")
     print(f"  quantile within 0.4% on {len(within)} cells; "
           f"two-worst {max(abs(q[c]) for c in q if c not in within):.1f}%")
+    # largest accuracy gain any rule buys over the running quantile, and cost
+    best = (-1e9, "", "")
+    for c in d:
+        for pol in ("frozen", "pcee", "rc_eenn", "bandit"):
+            g = d[c]["acc"][pol] - d[c]["acc"]["quantile"]
+            if g > best[0]:
+                best = (g, pol, c)
+    g, pol, c = best
+    print(f"  largest gain any rule buys: {g:+.1f} points by {pol} on {c}, "
+          f"at {d[c]['over'][pol]:.0f}% overspend")
+
+
+def collapse_diagnostics():
+    """Section 8: why the collapsed baselines collapse, from the saved score
+    matrices (no retraining)."""
+    import numpy as np
+    print("== 8. baseline-collapse diagnoses ==")
+    # JEI-DNN gate concentration on CIFAR-100 (native gate scores)
+    fr = []
+    for f in sorted(REPO.glob("outputs/cifar100/jei_dnn*/seed*/native_scores.npz")):
+        g = np.load(f)["g_clean"]
+        n, em1 = g.shape
+        fire = (1.0 / (1.0 + np.exp(-g))) >= 0.5
+        idx = np.full(n, em1, dtype=int)
+        for j in range(em1):
+            take = (idx == em1) & fire[:, j]
+            idx[take] = j
+        fr.append(np.bincount(idx, minlength=em1 + 1).max() / n)
+    if fr:
+        print(f"  JEI-DNN CIFAR-100 modal-exit fraction: {min(fr):.2f} "
+              f"(1.00 = every input to a single exit; min over runs)")
+
+    def per_exit(pat):
+        accs = [np.load(f)["correct_val"].mean(0) * 100
+                for f in sorted(REPO.glob(pat))]
+        return np.mean(np.array(accs), 0) if accs else None
+
+    jei = per_exit("outputs/gsc/jei_dnn*/seed*/exit_scores.npz")
+    if jei is not None:
+        a = sorted(jei, reverse=True)
+        print(f"  JEI-DNN GSC v2 per-exit accuracy: selected {a[0]:.1f}, "
+              f"starved exits at {a[1]:.1f} or below (chance for 35 classes)")
+    for m in ("eenet", "beem"):
+        v = per_exit(f"outputs/gsc/{m}*/seed*/exit_scores.npz")
+        if v is not None:
+            print(f"  {m} GSC v2 first-exit accuracy: {v[0]:.1f}")
+    ours = per_exit("outputs/gsc/jolt__g0.5-lb0.5-ce2.0*/seed*/exit_scores.npz")
+    if ours is not None:
+        print(f"  JOLT GSC v2 first-exit accuracy: {ours[0]:.1f}")
+    # SST-2: frozen overspend buys no accuracy at the severest condition
+    r = ladder_for("outputs/sst2/jolt__g16.0-lb0.5-ce0.5*/seed*",
+                   "text_shift_eval.json")
+    if r is not None:
+        _, quant, froz, *_ = r
+        if froz[-1] is not None and quant[-1] is not None:
+            print(f"  SST-2 severest: frozen-minus-quantile accuracy "
+                  f"{froz[-1] - quant[-1]:+.2f}")
 
 
 if __name__ == "__main__":
@@ -228,5 +301,6 @@ if __name__ == "__main__":
     shift_envelope()
     interaction()
     calibration()
-    pareto_and_shift()
+    pareto()
     policy_comparison()
+    collapse_diagnostics()

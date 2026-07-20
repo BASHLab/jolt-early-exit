@@ -141,6 +141,8 @@ def main() -> None:
     ap.add_argument("--severities", default="1,3,5")
     ap.add_argument("--corruptions", default="all")
     ap.add_argument("--force", action="store_true")
+    ap.add_argument("--only", default="",
+                    help="substring filter on the run-dir path (e.g. a method tag)")
     args = ap.parse_args()
 
     severities = [int(s) for s in args.severities.split(",")]
@@ -156,6 +158,8 @@ def main() -> None:
             continue
         for method_dir in sorted(p for p in root.iterdir() if p.is_dir()):
             for seed_dir in sorted(method_dir.glob("seed*")):
+                if args.only and args.only not in str(seed_dir):
+                    continue
                 if (seed_dir / "checkpoint.pt").exists() and (seed_dir / "metrics.json").exists():
                     run_dirs.append(seed_dir)
 
