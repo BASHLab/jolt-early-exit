@@ -125,9 +125,12 @@ def shift_envelope():
     print(f"  best  {deltas[-1][0]:+.2f} ({deltas[-1][1]} {deltas[-1][2]})")
 
 
+# Stepwise arms are trained at the dataset's picked gamma/lambda with the
+# monotonicity penalty disabled and no final-exit anchor, matching the paper's
+# interaction protocol (Table IV).
 INTERACTION = {  # dataset -> (root, loo root, tag, budget)
     "GSC v2": ("outputs/gsc", "outputs/gsc_stepwise", "g0.5-lb0.5", 0.5),
-    "CIFAR-100": ("outputs/cifar100", "outputs/cifar100_stepwise", "g2.0-lb0.5-ce4.0", 0.5),
+    "CIFAR-100": ("outputs/cifar100", "outputs/cifar100_stepwise", "g2.0-lb0.5", 0.5),
 }
 
 
