@@ -323,6 +323,9 @@ LADDER_FIG = REPO / "figures/shift_ladders.pdf"
 def render_ladder_figure():
     import matplotlib
     matplotlib.use("Agg")
+    # Type 42 (TrueType) rather than matplotlib's default Type 3, which
+    # IEEE Xplore does not accept in camera-ready PDFs.
+    matplotlib.rcParams.update({"pdf.fonttype": 42, "ps.fonttype": 42})
     import matplotlib.pyplot as plt
     import numpy as np
     fig, axes = plt.subplots(2, 7, figsize=(7.1, 2.9))
@@ -360,6 +363,9 @@ def render_ladder_figure():
 def render_figure():
     import matplotlib
     matplotlib.use("Agg")
+    # Type 42 (TrueType) rather than matplotlib's default Type 3, which
+    # IEEE Xplore does not accept in camera-ready PDFs.
+    matplotlib.rcParams.update({"pdf.fonttype": 42, "ps.fonttype": 42})
     import matplotlib.pyplot as plt
     import numpy as np
     panels = [("CIFAR-100 (gaussian noise)", "shift_eval.json", "gaussian_noise", ["1", "3", "5"],

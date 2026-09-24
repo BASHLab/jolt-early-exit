@@ -148,6 +148,9 @@ def render(data):
         return
     import matplotlib
     matplotlib.use("Agg")
+    # Type 42 (TrueType) rather than matplotlib's default Type 3, which
+    # IEEE Xplore does not accept in camera-ready PDFs.
+    matplotlib.rcParams.update({"pdf.fonttype": 42, "ps.fonttype": 42})
     import matplotlib.pyplot as plt
 
     names = [c[0] for c in CELLS if c[0] in data]
